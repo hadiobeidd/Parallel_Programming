@@ -1,0 +1,93 @@
+FUNCTION compare(a, b):
+    RETURN a - b
+
+FUNCTION serial_bucket_sort(data, N):
+    SORT data using qsort
+
+MAIN FUNCTION:
+    INITIALIZE MPI
+    GET rank and size
+
+    SET N = 1000000
+    IF rank == 0 THEN:
+        ALLOCATE data and sorted_serial arrays
+        INITIALIZE random seed
+        FILL data with random integers
+
+        START TIMER
+        SORT sorted_serial using qsort
+        END TIMER
+        PRINT "Serial sort completed in {time} seconds"
+
+    BARRIER
+    START TIMER
+
+    BCAST N to all processes
+
+    SET chunk_size = N / size
+    ALLOCATE local_data array
+
+    SCATTER data into local_data
+
+    SORT local_data using qsort
+
+    ALLOCATE sendcounts and sdispls arrays
+    ALLOCATE recvcounts and rdispls arrays
+    ALLOCATE buckets array of size 'size'
+
+    FOR each element in local_data:
+        target_proc = (local_data[i] / MAX_VALUE) * size
+        IF target_proc >= size THEN:
+            target_proc = size - 1
+        buckets[target_proc].append(local_data[i])
+        sendcounts[target_proc]++
+
+    sdispls[0] = 0
+    FOR i FROM 1 TO size:
+        sdispls[i] = sdispls[i - 1] + sendcounts[i - 1]
+
+    ALLOCATE sendbuf
+    FOR each bucket:
+        FOR each element in bucket:
+            sendbuf[sdispls[i] + j] = buckets[i][j]
+
+    MPI_ALLTOALL(sendcounts, recvcounts)
+
+    rdispls[0] = 0
+    FOR i FROM 1 TO size:
+        rdispls[i] = rdispls[i - 1] + recvcounts[i - 1]
+
+    ALLOCATE recvbuf
+
+    MPI_ALLTOALLV(sendbuf, recvbuf)
+
+    SORT recvbuf using qsort
+
+    MPI_GATHER(total_recv)
+
+    IF rank == 0 THEN:
+        rdispls[0] = 0
+        FOR i FROM 1 TO size:
+            rdispls[i] = rdispls[i - 1] + recvcounts[i - 1]
+
+    IF rank == 0 THEN:
+        ALLOCATE sorted_parallel array
+    MPI_GATHERV(recvbuf, sorted_parallel)
+
+    BARRIER
+    END TIMER
+
+    IF rank == 0 THEN:
+        PRINT "Parallel sort completed in {time} seconds"
+        VERIFY sorted_serial and sorted_parallel match
+        IF they match THEN:
+            PRINT "Verification: SUCCESS"
+        ELSE:
+            PRINT "Verification: FAILURE"
+
+        speedup = serial_time / parallel_time
+        PRINT "Speedup: {speedup}"
+
+    FREE all allocated arrays
+
+    FINALIZE MPI
